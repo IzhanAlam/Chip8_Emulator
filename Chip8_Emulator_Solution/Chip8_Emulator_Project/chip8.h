@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <random>
 
+const unsigned int VIDEO_HEIGHT = 32;
+const unsigned int VIDEO_WIDTH = 64;
+
 class Chip8 
 {
 public:
@@ -35,13 +38,27 @@ private:
 	uint16_t index_register{};
 	//Program Counter register holds the address of the next instruction to execute
 	uint16_t program_counter{};
-	// opcode is two butes, where memory is addressed as a single byte,
+	// opcode is two bytes, where memory is addressed as a single byte,
 	// But it needs to fetch the byte from program counter, and program counter + 1 (next instruction)
 	uint16_t opcode{};
 	//16-level stack is a way for CPU to keep track of the order of execution when it calls functions
 	uint16_t stack[16]{};
 	
 	//Monochrome Display Memory (64 pixels width, 32 pixels length) - Only 2 colors repersented
-	uint32_t video[64 * 32]{};
+	uint32_t video[VIDEO_WIDTH * VIDEO_HEIGHT]{};
 	
+	//Instruction for random number
+	//Random number engine class which generates pseudo-random numbers
+	std::default_random_engine random_num_engine;
+	std::uniform_int_distribution<uint8_t> random_byte; //Produces random integer values uniformlly distributed on a closed interval [a,b]
+
+
+	//Instruction Functions -- > in chip8.cpp
+	void OP_00E0();
+	void OP_00EE();
+	void OP_1nnn();
+	void OP_2nnn();
+	void OP_3xkk();
+	void OP_4xkk();
+	void OP_5xy0();
 };
