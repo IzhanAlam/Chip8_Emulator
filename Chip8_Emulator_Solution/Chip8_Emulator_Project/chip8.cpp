@@ -44,7 +44,7 @@ uint8_t fonts[num_of_fonts] = {
 
 //Initializer
 Chip8::Chip8()
-	: random_num_engine(std::chrono::system_clock::now().time_since_epoch().count()) //Use the sustem clock for the random number engine
+	//: random_num_engine(std::chrono::system_clock::now().time_since_epoch().count()) //Use the sustem clock for the random number engine
 {
 	//Chip8 memory startes form 0x200, the program counter registry is set at this
 	//This is the first instruction to be executed
@@ -60,10 +60,108 @@ Chip8::Chip8()
 	//In this case, the system clock can be used to generate the random number
 
 	//Generates random number between 0 and 255 --> stored as random_byte
-	random_byte = std::uniform_int_distribution<uint8_t>(0, 255U); //Initalize RNG
+	//random_byte = std::uniform_int_distribution<uint8_t>(0, 255U); //Initalize RNG
 
+	random_byte = (rand() % 0xFF);
 
+	//Decoding an opcode through function pointer arrays instead of a case-switch
+	table[0x0] = &Chip8::Table0;
+	table[0x1] = &Chip8::OP_1nnn;
+	table[0x2] = &Chip8::OP_2nnn;
+	table[0x3] = &Chip8::OP_3xkk;
+	table[0x4] = &Chip8::OP_4xkk;
+	table[0x5] = &Chip8::OP_5xy0;
+	table[0x6] = &Chip8::OP_6xkk;
+	table[0x7] = &Chip8::OP_7xkk;
+	table[0x8] = &Chip8::Table8;
+	table[0x9] = &Chip8::OP_9xy0;
+	table[0xA] = &Chip8::OP_Annn;
+	table[0xB] = &Chip8::OP_Bnnn;
+	table[0xC] = &Chip8::OP_Cxkk;
+	table[0xD] = &Chip8::OP_Dxyn;
+	table[0xE] = &Chip8::TableE;
+	table[0xF] = &Chip8::TableF;
+
+	table0[0x0] = &Chip8::OP_00E0;
+	table0[0xE] = &Chip8::OP_00EE;
+
+	table8[0x0] = &Chip8::OP_8xy0;
+	table8[0x1] = &Chip8::OP_8xy1;
+	table8[0x2] = &Chip8::OP_8xy2;
+	table8[0x3] = &Chip8::OP_8xy3;
+	table8[0x4] = &Chip8::OP_8xy4;
+	table8[0x5] = &Chip8::OP_8xy5;
+	table8[0x6] = &Chip8::OP_8xy6;
+	table8[0x7] = &Chip8::OP_8xy7;
+	table8[0xE] = &Chip8::OP_8xyE;
+
+	tableE[0x1] = &Chip8::OP_ExA1;
+	tableE[0xE] = &Chip8::OP_Ex9E;
+
+	tableF[0x07] = &Chip8::OP_Fx07;
+	tableF[0x0A] = &Chip8::OP_Fx0A;
+	tableF[0x15] = &Chip8::OP_Fx15;
+	tableF[0x18] = &Chip8::OP_Fx18;
+	tableF[0x1E] = &Chip8::OP_Fx1E;
+	tableF[0x29] = &Chip8::OP_Fx29;
+	tableF[0x33] = &Chip8::OP_Fx33;
+	tableF[0x55] = &Chip8::OP_Fx55;
+	tableF[0x65] = &Chip8::OP_Fx65;
 }
+
+//Get next instruction in the form of an opcode.
+//Decode instruction to determine next operation
+//Execute the instruction
+//Decoding and executing is done through function pointers
+//First digit of opcode is obtained through bitmask, and shifted over so it becomes single digit
+void Chip8::Cycle()
+{
+	// Fetch
+	opcode = (memory[program_counter] << 8u) | memory[program_counter + 1];
+
+	// Increment the PC before we execute anything
+	program_counter += 2;
+
+	// Decode and Execute
+	((*this).*(table[(opcode & 0xF000u) >> 12u]))();
+
+	// Decrement the delay timer if it's been set
+	if (delay_timer > 0)
+	{
+		--delay_timer;
+	}
+
+	// Decrement the sound timer if it's been set
+	if (sound_timer > 0)
+	{
+		--sound_timer;
+	}
+}
+
+//
+void Chip8::Table0()
+{
+	((*this).*(table0[opcode & 0x000Fu]))();
+}
+
+void Chip8::Table8()
+{
+	((*this).*(table8[opcode & 0x000Fu]))();
+}
+
+void Chip8::TableE()
+{
+	((*this).*(tableE[opcode & 0x000Fu]))();
+}
+
+void Chip8::TableF()
+{
+	((*this).*(tableF[opcode & 0x00FFu]))();
+}
+
+
+void Chip8::OP_NULL()
+{}
 
 //The chip8 emulator has 34 instructions to emulate : http://mattmik.com/files/chip8/mastering/chip8.html
 
@@ -290,7 +388,7 @@ void Chip8::OP_9xy0()//SNE Vx, Vy
 
 	if (registers[Vx] != registers[Vy])
 	{
-		pc += 2;
+		program_counter += 2;
 	}
 }
 
@@ -299,11 +397,11 @@ void Chip8::OP_Annn() //LD I, addr
 {
 	uint16_t address = opcode & 0x0FFFu;
 
-	index = address;
+	index_register = address;
 }
 
 //Bnnn: jump to location nnn + V0
-void Chip8::OP_Bnn() // JP V0, addr
+void Chip8::OP_Bnnn() // JP V0, addr
 {
 	uint16_t address = opcode & 0x0FFFu;
 
@@ -316,7 +414,8 @@ void Chip8::OP_Cxkk() //RND Vx, byte
 	uint8_t Vx = (opcode & 0x0F00u) >> 8u;
 	uint8_t byte = opcode & 0x00FFu;
 
-	registers[Vx] = random_byte(random_num_engine) & byte;
+
+	registers[Vx] = random_byte & byte;
 }
 
 
@@ -339,7 +438,7 @@ void Chip8::OP_Dxyn()
 
 	for (unsigned int row = 0; row < height; ++row)
 	{
-		uint8_t spriteByte = memory[index + row];
+		uint8_t spriteByte = memory[index_register + row];
 
 		for (unsigned int col = 0; col < 8; ++col)
 		{
@@ -396,7 +495,7 @@ void Chip8::OP_Fx07() //LD Vx, DT
 {
 	uint8_t Vx = (opcode & 0x0F00u) >> 8u;
 
-	registers[Vx] = delayTimer;
+	registers[Vx] = delay_timer;
 }
 
 //Fx0A: Wait for key press, and store the value of the key press into Vx
@@ -509,7 +608,7 @@ void Chip8::OP_Fx29() //LD F, Vx
 	uint8_t Vx = (opcode & 0x0F00u) >> 8u;
 	uint8_t digit = registers[Vx];
 
-	index_register = FONTSET_START_ADDRESS + (5 * digit);
+	index_register = font_start_mem + (5 * digit);
 }
 
 //Fx33:Store the BCD repersentation of Vx in memory locations at i, i+1, and i+2
@@ -522,13 +621,13 @@ void Chip8::OP_Fx33() //LD B, Vx
 	uint8_t Vx = (opcode & 0x0F00u) >> 8u;
 	uint8_t value = registers[Vx];
 
-	memory[index + 2] = value % 10;
+	memory[index_register + 2] = value % 10;
 	value /= 10;
 
-	memory[index + 1] = value % 10;
+	memory[index_register + 1] = value % 10;
 	value /= 10;
 
-	memory[index] = value % 10;
+	memory[index_register] = value % 10;
 }
 
 //Fx55: Stores registers V0 through Vx in memory starting at location I
@@ -538,7 +637,7 @@ void Chip8::OP_Fx55() //LD[i], Vx
 
 	for (uint8_t i = 0; i <= Vx; ++i)
 	{
-		memory[index + i] = registers[i];
+		memory[index_register + i] = registers[i];
 	}
 }
 
@@ -549,7 +648,7 @@ void Chip8::OP_Fx65() //LD VX, [I]
 
 	for (uint8_t i = 0; i <= Vx; ++i)
 	{
-		registers[i] = memory[index + i];
+		registers[i] = memory[index_register + i];
 	}
 }
 
